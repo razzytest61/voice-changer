@@ -9,19 +9,13 @@ from .rvc_models.infer_pack.models import SynthesizerTrnMs768NSFsid_nono
 class RVCInferencerv2Nono(Inferencer):
     def loadModel(self, file: str, gpu: int):
         dev = DeviceManager.get_instance().getDevice(gpu)
-        #isHalf = DeviceManager.get_instance().halfPrecisionAvailable(gpu)
-        isHalf = False
-        self.setProps(EnumInferenceTypes.pyTorchRVCv2Nono, file, isHalf, gpu)
+        self.setProps(EnumInferenceTypes.pyTorchRVCv2, file, False, gpu)
 
-        cpt = torch.load(file, map_location="cpu")
-        model = SynthesizerTrnMs768NSFsid_nono(*cpt["config"], is_half=isHalf)
+        cpt = torch.load(file, map_location=dev)
+        model = SynthesizerTrnMs768NSFsid_nono(*cpt["config"], is_half=False).to(dev)
 
         model.eval()
         model.load_state_dict(cpt["weight"], strict=False)
-
-        model = model.to(dev)
-        if isHalf:
-            model = model.half()
 
         self.model = model
         return self
@@ -36,5 +30,5 @@ class RVCInferencerv2Nono(Inferencer):
         convert_length: int | None,
     ) -> torch.Tensor:
         res = self.model.infer(feats, pitch_length, sid, convert_length=convert_length)
-        res = res[0][0, 0].to(dtype=torch.float32)
+        res = res[0][0, 0]
         return torch.clip(res, -1.0, 1.0, out=res)

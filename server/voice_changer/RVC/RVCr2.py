@@ -5,6 +5,7 @@ from dataclasses import asdict
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.cuda.amp import autocast
 from data.ModelSlot import RVCModelSlot
 from mods.log_control import VoiceChangaerLogger
 
@@ -27,7 +28,6 @@ from Exceptions import (
     PipelineNotInitializedException,
 )
 import soxr
-from typing import cast
 
 logger = VoiceChangaerLogger.get_instance().getLogger()
 
@@ -48,7 +48,7 @@ class RVCr2(VoiceChangerModel):
 
         self.audio_buffer: torch.Tensor | None = None
         self.pitchf_buffer: torch.Tensor | None = None
-        self.feature_buffer: torch.Tensor | None = None
+        # self.feature_buffer: torch.Tensor | None = None
         self.prevVol = 0.0
         self.slotInfo = slotInfo
 
@@ -77,7 +77,7 @@ class RVCr2(VoiceChangerModel):
 
         self.audio_buffer = torch.zeros((0,), dtype=torch.float32, device=self.pipeline.device)
         self.pitchf_buffer = torch.zeros((0,), dtype=torch.float32, device=self.pipeline.device)
-        self.feature_buffer = torch.zeros((0, self.slotInfo.embChannels), dtype=torch.float32, device=self.pipeline.device)
+        # self.feature_buffer = torch.zeros((0, self.slotInfo.embChannels), dtype=torch.float32, device=self.pipeline.device)
 
         logger.info("[Voice Changer] [RVCr2] Initializing... done")
 
@@ -137,15 +137,15 @@ class RVCr2(VoiceChangerModel):
                 self.pitchf_buffer = torch.zeros(convert_feature_size, dtype=torch.float32, device=self.pipeline.device)
             self.pitchf_buffer = self.pitchf_buffer[:convert_feature_size]
 
-        if self.feature_buffer.shape[0] < convert_feature_size:
-            print('Reallocating feature buffer. Old size:', self.feature_buffer.shape[0])
-            self.feature_buffer = torch.zeros((convert_feature_size, self.slotInfo.embChannels), dtype=torch.float32, device=self.pipeline.device)
-        self.feature_buffer = self.feature_buffer[:convert_feature_size]
+        # if self.feature_buffer.shape[0] < convert_feature_size:
+        #     print('Reallocating feature buffer. Old size:', self.feature_buffer.shape[0])
+        #     self.feature_buffer = torch.zeros((convert_feature_size, self.slotInfo.embChannels), dtype=torch.float32, device=self.pipeline.device)
+        # self.feature_buffer = self.feature_buffer[:convert_feature_size]
 
         return (
             self.audio_buffer,
             self.pitchf_buffer,
-            self.feature_buffer,
+            # self.feature_buffer,
         )
 
     def write_input(
@@ -191,7 +191,8 @@ class RVCr2(VoiceChangerModel):
         convert_feature_size = convert_size // self.window
 
          # 入力データ生成
-        audio, pitchf, feature = self.alloc(convert_size, convert_feature_size)
+        # audio, pitchf, feature = self.alloc(convert_size, convert_feature_size)
+        audio, pitchf = self.alloc(convert_size, convert_feature_size)
 
         self.audio_buffer = self.write_input(received_data, audio)
 
@@ -239,11 +240,11 @@ class RVCr2(VoiceChangerModel):
         useFinalProj = self.slotInfo.useFinalProj
 
         try:
-            audio_out, pitchf, feature = self.pipeline.exec(
+            audio_out, pitchf, _ = self.pipeline.exec(
                 sid,
                 audio,
                 pitchf,
-                feature,
+                None, # feature
                 f0_up_key,
                 index_rate,
                 if_f0,
@@ -267,7 +268,7 @@ class RVCr2(VoiceChangerModel):
         if pitchf is not None:
             self.pitchf_buffer = self.write_input(pitchf, self.pitchf_buffer)
 
-        self.feature_buffer = self.write_input(feature, self.feature_buffer)
+        # self.feature_buffer = self.write_input(feature, self.feature_buffer)
 
         # inferで出力されるサンプリングレートはモデルのサンプリングレートになる。
         # pipelineに（入力されるときはhubertように16k）
@@ -275,7 +276,7 @@ class RVCr2(VoiceChangerModel):
             audio_out = audio_out[t_pad_tgt:-t_pad_tgt]
 
         # FIXME: Why the heck does it require another sqrt to amplify the volume?
-        result = (audio_out * torch.sqrt(vol_t)).detach().cpu().numpy()
+        result = (audio_out * torch.sqrt(vol_t)).to(dtype=torch.float32).detach().cpu().numpy()
 
         result: AudioInOutFloat = soxr.resample(
             result,

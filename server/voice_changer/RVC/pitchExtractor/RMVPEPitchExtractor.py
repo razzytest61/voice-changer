@@ -19,9 +19,7 @@ class RMVPEPitchExtractor(PitchExtractor):
         # self.uv_interp = True
         # self.input_sr = -1
         self.device = DeviceManager.get_instance().getDevice(gpu)
-        # isHalf = DeviceManager.get_instance().halfPrecisionAvailable(gpu)
-        isHalf = False
-        self.rmvpe = RMVPE(model_path=file, is_half=isHalf, device=self.device)
+        self.rmvpe = RMVPE(model_path=file, is_half=False, device=self.device)
 
     def extract(self, audio: torch.Tensor, pitchf: torch.Tensor, f0_up_key: int, sr: int, window: int, silence_front: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
         offset_frame_number = silence_front * sr

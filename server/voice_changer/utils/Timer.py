@@ -62,7 +62,7 @@ class Timer2(object):
         frame = caller_frame[1]
         filename = frame.filename
         line_number = frame.lineno
-        self.key = f"{filename}_{line_number}_{title}"
+        self.key = f"{filename}:{line_number}_{title}"
         if self.key not in self.storedSecs:
             self.storedSecs[self.key] = {}
 
@@ -70,23 +70,22 @@ class Timer2(object):
         if not self.enable:
             return self
         self.now = perf_counter()
+        self.begin = perf_counter()
         return self
 
     def record(self, lapname: str):
         if not self.enable:
             return
-        self.lapkey = f"{self.key}_{lapname}"
         prev = self.now
         self.now = perf_counter()
-        if self.lapkey not in self.storedSecs[self.key]:
-            self.storedSecs[self.key][self.lapkey] = []
-        self.storedSecs[self.key][self.lapkey].append(self.now - prev)
-        self.storedSecs[self.key][self.lapkey] = self.storedSecs[self.key][self.lapkey][-self.maxStores :]
+        print(f"---- {self.key}_{lapname} ----")
+        print(f'msec: {(self.now - prev) * 1000}')
+
 
     def __exit__(self, *_):
         if not self.enable:
             return
-        self.secs = perf_counter() - self.now
+        self.secs = perf_counter() - self.begin
         # title = self.key.split("_")[-1]
         # print(f"---- {title} ----")
         # for key, val in self.storedSecs[self.key].items():

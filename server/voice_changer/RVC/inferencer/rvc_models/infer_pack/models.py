@@ -241,7 +241,7 @@ class Generator(torch.nn.Module):
             # conv_post
             self.ups_size[-1] += 3
 
-            for i in range(len(self.ups)-1, -1, -1):                
+            for i in range(len(self.ups)-1, -1, -1):
                 for k, d in zip(resblock_kernel_sizes[::-1], resblock_dilation_sizes[::-1]):
                     # conv2
                     self.ups_size[i] += (k - 1)//2
@@ -276,7 +276,7 @@ class Generator(torch.nn.Module):
     def infer_realtime(self, x, g=None, convert_length=None):
         out_length = x.shape[2] * np.prod(self.upsample_rates)
         if convert_length is None:
-            convert_length = x.shape[2] * np.prod(self.upsample_rates)
+            convert_length = out_length
 
         x = self.conv_pre(x)
         if g is not None:
@@ -512,7 +512,7 @@ class GeneratorNSF(torch.nn.Module):
             # conv_post
             self.ups_size[-1] += 3
 
-            for i in range(len(self.ups)-1, -1, -1):                
+            for i in range(len(self.ups)-1, -1, -1):
                 for k, d in zip(resblock_kernel_sizes[::-1], resblock_dilation_sizes[::-1]):
                     # conv2
                     self.ups_size[i] += (k - 1)//2
@@ -521,7 +521,7 @@ class GeneratorNSF(torch.nn.Module):
                 # noise_conv
                 self.noise_conv_size[i] = self.ups_size[i] * np.prod(upsample_rates[i:])
                 # upsampling
-                
+
                 self.ups_size[i] = -(-self.ups_size[i] // upsample_rates[i]) + (upsample_kernel_sizes[i] - upsample_rates[i]) // 2
                 if i:
                     self.ups_size[i-1] = self.ups_size[i] + 0
@@ -554,7 +554,7 @@ class GeneratorNSF(torch.nn.Module):
     def infer_realtime(self, x, f0, g=None, convert_length=None):
         out_length = x.shape[2] * np.prod(self.upsample_rates)
         if convert_length is None:
-            convert_length = x.shape[2] * np.prod(self.upsample_rates)
+            convert_length = out_length
 
         har_source, noi_source, uv = self.m_source(f0, self.upp)
         har_source = har_source.transpose(1, 2)
@@ -563,15 +563,18 @@ class GeneratorNSF(torch.nn.Module):
             x = x + self.cond(g)
 
         for i in range(self.num_upsamples):
+
             if self.realtime:
                 x = x[:, :, -self.ups_size[i] + (-convert_length // np.prod(self.upsample_rates[i:])):]
+
             x = F.leaky_relu(x, LRELU_SLOPE)
             x_ = self.ups[i](x)
+
             x_source = self.noise_convs[i](har_source[:, :, -convert_length - self.noise_conv_size[i]:])
             x = torch.zeros([x_.shape[0], x_.shape[1], max(x_.shape[2], x_source.shape[2])], device=x.device, dtype=x.dtype)
             x[:, :, -x_.shape[2]:] += x_
             x[:, :, -x_source.shape[2]:] += x_source
-            
+
             xs = None
             for j in range(self.num_kernels):
                 if xs is None:
@@ -679,7 +682,7 @@ class SynthesizerTrnMs256NSFsid(nn.Module):
     def infer(self, phone, phone_lengths, pitch, nsff0, sid, max_len=None, convert_length=None):
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p, device=phone.device) * 0.66666) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         o = self.dec.infer_realtime((z * x_mask)[:, :, :max_len], nsff0, g=g, convert_length=convert_length)
         return o, x_mask, (z, z_p, m_p, logs_p)
@@ -760,10 +763,10 @@ class SynthesizerTrnMs768NSFsid(nn.Module):
         o = self.dec(z_slice, pitchf, g=g)
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
-    def infer(self, phone, phone_lengths, pitch, nsff0, sid, max_len=None, convert_length=None):
+    def infer(self, phone: torch.Tensor, phone_lengths: torch.Tensor, pitch: torch.Tensor, nsff0: torch.Tensor, sid: torch.Tensor, max_len: int | None = None, convert_length: int | None = None):
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, pitch, phone_lengths)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p, device=phone.device) * 0.66666) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         o = self.dec.infer_realtime((z * x_mask)[:, :, :max_len], nsff0, g=g, convert_length=convert_length)
         return o, x_mask, (z, z_p, m_p, logs_p)
@@ -840,7 +843,7 @@ class SynthesizerTrnMs256NSFsid_nono(nn.Module):
     def infer(self, phone, phone_lengths, sid, max_len=None, convert_length=None):
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p, device=phone.device) * 0.66666) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         o = self.dec.infer_realtime((z * x_mask)[:, :, :max_len], g=g, convert_length=convert_length)
         return o, x_mask, (z, z_p, m_p, logs_p)
@@ -914,10 +917,10 @@ class SynthesizerTrnMs768NSFsid_nono(nn.Module):
         o = self.dec(z_slice, g=g)
         return o, ids_slice, x_mask, y_mask, (z, z_p, m_p, logs_p, m_q, logs_q)
 
-    def infer(self, phone, phone_lengths, sid, max_len=None, convert_length=None):
+    def infer(self, phone: torch.Tensor, phone_lengths: torch.Tensor, sid: torch.Tensor, max_len: int | None = None, convert_length: int | None = None):
         g = self.emb_g(sid).unsqueeze(-1)
         m_p, logs_p, x_mask = self.enc_p(phone, None, phone_lengths)
-        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p) * 0.66666) * x_mask
+        z_p = (m_p + torch.exp(logs_p) * torch.randn_like(m_p, device=phone.device) * 0.66666) * x_mask
         z = self.flow(z_p, x_mask, g=g, reverse=True)
         o = self.dec.infer_realtime((z * x_mask)[:, :, :max_len], g=g, convert_length=convert_length)
         return o, x_mask, (z, z_p, m_p, logs_p)

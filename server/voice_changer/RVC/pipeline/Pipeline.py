@@ -33,7 +33,7 @@ class Pipeline:
 
     targetSR: int
     device: torch.device
-    isHalf: bool
+    is_half: bool
 
     def __init__(
         self,
@@ -44,7 +44,7 @@ class Pipeline:
         # feature: Any | None,
         targetSR,
         device,
-        isHalf,
+        is_half,
     ):
         self.embedder = embedder
         self.inferencer = inferencer
@@ -59,7 +59,7 @@ class Pipeline:
 
         self.targetSR = targetSR
         self.device = device
-        self.isHalf = isHalf
+        self.is_half = is_half
 
         self.sr = 16000
         self.window = 160
@@ -68,7 +68,7 @@ class Pipeline:
         inferencerInfo = self.inferencer.getInferencerInfo() if self.inferencer else {}
         embedderInfo = self.embedder.getEmbedderInfo()
         pitchExtractorInfo = self.pitchExtractor.getPitchExtractorInfo()
-        return {"inferencer": inferencerInfo, "embedder": embedderInfo, "pitchExtractor": pitchExtractorInfo, "isHalf": self.isHalf}
+        return {"inferencer": inferencerInfo, "embedder": embedderInfo, "pitchExtractor": pitchExtractorInfo, "isHalf": self.is_half}
 
     def setPitchExtractor(self, pitchExtractor: PitchExtractor):
         self.pitchExtractor = pitchExtractor
@@ -136,7 +136,7 @@ class Pipeline:
         # print(f"pipeline exec input, audio:{audio.shape}, pitchf:{pitchf.shape}, feature:{feature.shape}")
         # print(f"pipeline exec input, silence_front:{silence_front}, out_size:{out_size}")
 
-        with Timer2("Pipeline-Exec", False) as t:  # NOQA
+        with Timer2("Pipeline-Exec", False) as t, autocast(enabled=self.is_half):  # NOQA
             # 16000のサンプリングレートで入ってきている。以降この世界は16000で処理。
 
             # tensor型調整
@@ -147,12 +147,10 @@ class Pipeline:
             t.record("pre-process")
 
             # ピッチ検出
-            # with autocast(enabled=self.isHalf):
             pitch, pitchf = self.extractPitch(audio, if_f0, pitchf, f0_up_key, silence_front)
             t.record("extract-pitch")
 
             # embedding
-            # with autocast(enabled=self.isHalf):
             feats = self.extractFeatures(feats, embOutputLayer, useFinalProj)
             t.record("extract-feats")
 
@@ -162,13 +160,12 @@ class Pipeline:
                 audio_full = feats[0]
                 audio_front = audio_full[silence_offset:]
 
-                if self.isHalf:
-                    audio_front = audio_front.to(dtype=torch.float32, copy=False)
-
                 # TODO: kは調整できるようにする
                 k = 1
                 if k == 1:
                     _, ix = self.index.search(audio_front, 1)
+                    # Since a part of shared memory is modified, we don't need to recover silent front later.
+                    # Copy updated features to front.
                     audio_front[:] = self.index_reconstruct[ix.squeeze()]
                 else:
                     score, ix = self.index.search(audio_front, k=8)
@@ -176,7 +173,7 @@ class Pipeline:
                     weight /= weight.sum(dim=1, keepdim=True)
                     audio_front[:] = torch.sum(self.index_reconstruct[ix] * weight.unsqueeze(2), dim=1)
 
-                # Recover silent front
+                # Obtain features from full audio with features from index
                 feats = audio_full.unsqueeze(0) * index_rate + (1 - index_rate) * feats
 
                 # pitchの推定が上手くいかない(pitchf=0)場合、検索前の特徴を混ぜる
@@ -204,18 +201,14 @@ class Pipeline:
             sid = torch.as_tensor(sid, device=self.device, dtype=torch.int64).unsqueeze(0)
             t.record("mid-precess")
             # 推論実行
-            # with autocast(enabled=self.isHalf):
+            
             out_audio = self.infer(feats, p_len, pitch, pitchf, sid, out_size)
             t.record("infer")
 
             feats_buffer = feats.squeeze(0)
             pitchf_buffer = pitchf.squeeze(0) if pitchf is not None else None
 
-            # del p_len, pitch, pitchf, feats, sid
-            # torch.cuda.empty_cache()
-
             t.record("post-process")
-            # torch.cuda.empty_cache()
         # print("EXEC AVERAGE:", t.avrSecs)
         return out_audio, pitchf_buffer, feats_buffer
 

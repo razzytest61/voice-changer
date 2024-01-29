@@ -24,8 +24,7 @@ class OnnxRVCInferencerNono(OnnxRVCInferencer):
             binding = self.model.io_binding()
 
             if self.input_feats_half:
-                feats = feats.to(torch.float16)
-                binding.bind_input('feats', device_type='cuda', device_id=feats.device.index, element_type=np.float16, shape=tuple(feats.shape), buffer_ptr=feats.data_ptr())
+                binding.bind_input('feats', device_type='cuda', device_id=feats.device.index, element_type=np.float16, shape=tuple(feats.shape), buffer_ptr=feats.to(torch.float16).data_ptr())
             else:
                 binding.bind_input('feats', device_type='cuda', device_id=feats.device.index, element_type=np.float32, shape=tuple(feats.shape), buffer_ptr=feats.data_ptr())
             binding.bind_input('p_len', device_type='cuda', device_id=feats.device.index, element_type=np.int64, shape=tuple(pitch_length.shape), buffer_ptr=pitch_length.data_ptr())
@@ -47,7 +46,7 @@ class OnnxRVCInferencerNono(OnnxRVCInferencer):
             )
         # self.model.end_profiling()
 
-        res = torch.as_tensor(output[0], dtype=torch.float32, device=sid.device)
+        res = torch.as_tensor(output[0], dtype=torch.float16 if self.output_half else torch.float32, device=sid.device)
 
         if self.inferencerTypeVersion == "v2.1" or self.inferencerTypeVersion == "v2.2" or self.inferencerTypeVersion == "v1.1":
             return res

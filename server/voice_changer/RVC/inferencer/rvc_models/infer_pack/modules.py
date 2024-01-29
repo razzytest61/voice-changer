@@ -2,6 +2,7 @@ import math
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.cuda.amp import autocast
 
 from torch.nn import Conv1d
 from torch.nn.utils import weight_norm, remove_weight_norm
@@ -286,7 +287,9 @@ class ResBlock1(torch.nn.Module):
         )
         self.convs2.apply(init_weights)
 
+    @autocast(enabled=False)
     def forward(self, x, x_mask=None):
+        x = x.to(dtype=torch.float32)
         for c1, c2 in zip(self.convs1, self.convs2):
             xt = F.leaky_relu(x, LRELU_SLOPE)
             if x_mask is not None:
@@ -337,7 +340,9 @@ class ResBlock2(torch.nn.Module):
         )
         self.convs.apply(init_weights)
 
+    @autocast(enabled=False)
     def forward(self, x, x_mask=None):
+        x = x.to(dtype=torch.float32)
         for c in self.convs:
             xt = F.leaky_relu(x, LRELU_SLOPE)
             if x_mask is not None:
