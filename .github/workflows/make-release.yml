@@ -93,7 +93,7 @@ jobs:
         # architecture: x64
         # cache: pip
     - name: Install UPX
-      if: ${{ matrix.os != 'macos-latest' || matrix.os != 'macos-13' }}
+      if: ${{ matrix.os != 'macos-latest' && matrix.os != 'macos-13' }}
       uses: crazy-max/ghaction-upx@v3
       with:
         install-only: true
