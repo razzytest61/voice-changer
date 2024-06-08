@@ -37,7 +37,7 @@ class RVCInferencerv2(Inferencer):
                 model = model.eval()
                 self.use_jit = True
             else:
-                model = torch.jit.freeze(torch.jit.script(model.eval()))
+                model = torch.jit.optimize_for_inference(torch.jit.script(model.eval()), other_methods=['infer'])
                 torch.jit.save(model, jit_file)
                 self.use_jit = False
         else:
